@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Planar 2 GDL - Control y Trayectorias</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <style>
+        /* Configuración de fuente y colores de Tailwind */
+        :root {
+            --color-primary: #1D4ED8; /* blue-700 */
+            --color-secondary: #059669; /* emerald-600 */
+            --color-warning: #EF4444; /* red-500 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Estilo para el lienzo del robot */
+        #robotCanvas {
+            border: 2px solid var(--color-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #ffffff;
+            /* Asegura que el canvas sea escalable y tenga un tamaño inicial grande */
+            width: 100%;
+            /* El max-width se controla mejor con la rejilla (grid) de Tailwind */
+            aspect-ratio: 1 / 1;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': 'var(--color-primary)',
+                        'secondary': 'var(--color-secondary)',
+                        'warning': 'var(--color-warning)',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-2xl p-6 md:p-10">
+        <h1 class="text-3xl font-extrabold text-primary mb-6 border-b-2 border-primary pb-2">
+            Simulación y Control de un Robot de 2 GDL
+        </h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-8">
+            
+            <div class="p-4 bg-blue-50 rounded-lg shadow-md md:col-span-1">
+                <h2 class="text-xl font-semibold text-primary mb-3">Parámetros Físicos (m)</h2>
+                <p class="text-sm">Eslabón 1 (l1): <span class="font-bold">0.12</span></p>
+                <p class="text-sm">Eslabón 2 (l1): <span class="font-bold">0.12</span></p>
+                <p class="text-sm">Pinza (lg): <span class="font-bold">0.02</span></p>
+                <p class="text-sm mt-2">Radio Máx. de Trabajo: <span id="maxWorkspace" class="font-bold text-secondary">0.26</span> m</p>
+                <p class="text-sm">Tiempo Final (tf): <span class="font-bold text-secondary">20</span> s</p>
+            </div>
+
+            <div class="p-6 bg-gray-50 rounded-xl shadow-lg md:col-span-2 lg:col-span-2">
+                <h2 class="text-xl font-semibold text-primary mb-4">Posición Cartesiana Deseada (xd, yd)</h2>
+                <form id="controlForm" class="space-y-4 md:flex md:space-y-0 md:space-x-4">
+                    <div class="flex-1">
+                        <label for="xd" class="block text-sm font-medium text-gray-700">Posición Xd (m):</label>
+                        <input type="number" id="xd" value="0.2" step="0.01" min="-0.26" max="0.26"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-primary focus:border-primary">
+                    </div>
+                    <div class="flex-1">
+                        <label for="yd" class="block text-sm font-medium text-gray-700">Posición Yd (m):</label>
+                        <input type="number" id="yd" value="0.1" step="0.01" min="-0.26" max="0.26"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-primary focus:border-primary">
+                    </div>
+                    <button type="submit"
+                        class="px-4 py-2 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-blue-800 transition duration-150 md:self-end">
+                        Calcular y Mover
+                    </button>
+                </form>
+
+                <button id="resetButton"
+                    class="w-full mt-3 px-4 py-2 bg-secondary text-white font-bold rounded-lg shadow-md hover:bg-emerald-700 transition duration-150">
+                    Ir a Posición Inicial (xi=0.14m, yi=0.14m)
+                </button>
+            </div>
+
+            <div class="p-4 bg-gray-100 rounded-lg shadow-inner md:col-span-3 lg:col-span-1">
+                <h2 class="text-xl font-semibold text-primary mb-3">Estado Actual del TCP</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <p class="text-sm">Posición X: <span id="currentX" class="font-bold"></span> m</p>
+                    <p class="text-sm">Posición Y: <span id="currentY" class="font-bold"></span> m</p>
+                    <p class="text-sm">Ángulo q1: <span id="currentQ1" class="font-bold"></span> grados</p>
+                    <p class="text-sm">Ángulo q2: <span id="currentQ2" class="font-bold"></span> grados</p>
+                </div>
+            </div>
+
+        </div>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+            <div class="lg:col-span-3 flex flex-col items-center justify-start p-4 bg-gray-50 rounded-xl shadow-lg">
+                <h2 class="text-xl font-semibold text-primary mb-4">Visualización del Robot</h2>
+                <canvas id="robotCanvas" width="500" height="500" class="max-w-full h-auto"></canvas>
+            </div>
+            
+            <div class="lg:col-span-2 space-y-6">
+                <h2 class="text-2xl font-bold text-primary mb-4 border-b pb-2">Gráficas de Trayectorias Articulares (q1d(t) y q2d(t))</h2>
+                <div class="grid grid-cols-1 gap-6">
+                    <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                        <h3 class="text-lg font-semibold text-blue-800 mb-2">Trayectoria de q1d(t)</h3>
+                        <canvas id="q1dChart"></canvas>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                        <h3 class="text-lg font-semibold text-blue-800 mb-2">Trayectoria de q2d(t)</h3>
+                        <canvas id="q2dChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="warningModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 transition-opacity duration-300">
+        <div class="bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full transform scale-100 transition-transform duration-300">
+            <h3 class="text-2xl font-bold text-warning mb-4">¡Advertencia!</h3>
+            <p id="modalMessage" class="text-gray-700 mb-6">El punto cartesiano deseado se encuentra fuera del espacio de trabajo del robot (Radio Máx: 0.26 m). Por favor, ingrese coordenadas alcanzables.</p>
+            <button id="closeModal"
+                class="w-full px-4 py-2 bg-warning text-white font-bold rounded-lg shadow-md hover:bg-red-600 transition duration-150">
+                Entendido
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTES DEL ROBOT (Se mantienen igual) ---
+        const L1 = 0.12; // Eslabón 1 (m)
+        const L2_LINK = 0.12; // Eslabón 2 (m)
+        const L_GRIPPER = 0.02; // Pinza (m)
+        const L2_TCP = L2_LINK + L_GRIPPER; // Distancia del codo al TCP (0.14 m)
+        const R_MAX = L1 + L2_TCP; // Radio máximo de trabajo (0.26 m)
+        const TF = 20; // Tiempo final de la trayectoria (s)
+
+        // --- ESTADO INICIAL (Se mantienen igual) ---
+        let currentQ1 = -0.374; // rad
+        let currentQ2 = 1.415; // rad
+        let currentX = 0.14; // m
+        let currentY = 0.14; // m
+        let trajectoryPoints = []; 
+
+        // --- SETUP DE CANVAS (Se mantienen igual) ---
+        const canvas = document.getElementById('robotCanvas');
+        const ctx = canvas.getContext('2d');
+        const CANVAS_SIZE = 500;
+        const SCALE = CANVAS_SIZE / (R_MAX * 2.2); 
+        const CENTER_X = CANVAS_SIZE / 2;
+        const CENTER_Y = CANVAS_SIZE / 2; 
+
+        // --- GRÁFICAS (Chart.js) (Se mantienen igual) ---
+        let q1dChart, q2dChart;
+
+        // --- FUNCIONES (Se mantienen igual) ---
+        function toCanvasCoords(x, y) {
+            const px = CENTER_X + x * SCALE;
+            const py = CENTER_Y - y * SCALE;
+            return { px, py };
+        }
+
+        function drawGrid() {
+            const gridSizeMeters = 0.01; 
+            const labelStepMeters = 0.1; 
+            const viewLimitMeters = R_MAX * 1.1; 
+            const numLines = Math.ceil(viewLimitMeters / gridSizeMeters);
+
+            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE); 
+
+            // --- 1. Cuadrícula fina (0.01m) ---
+            ctx.strokeStyle = '#E5E7EB'; 
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            // Líneas Verticales
+            for (let i = -numLines; i <= numLines; i++) {
+                const x = i * gridSizeMeters;
+                const { px, py } = toCanvasCoords(x, viewLimitMeters); 
+                const { py: py_bottom } = toCanvasCoords(x, -viewLimitMeters); 
+                
+                ctx.moveTo(px, py);
+                ctx.lineTo(px, py_bottom);
+            }
+            
+            // Líneas Horizontales
+            for (let i = -numLines; i <= numLines; i++) {
+                const y = i * gridSizeMeters;
+                const { px: px_right, py } = toCanvasCoords(viewLimitMeters, y); 
+                const { px: px_left } = toCanvasCoords(-viewLimitMeters, y); 
+                
+                ctx.moveTo(px_right, py);
+                ctx.lineTo(px_left, py);
+            }
+            ctx.stroke();
+
+            // --- 2. Ejes principales (X e Y) ---
+            ctx.strokeStyle = '#9CA3AF'; 
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            // Eje X (y=0)
+            const { px: x1, py: y0 } = toCanvasCoords(-viewLimitMeters, 0);
+            const { px: x2 } = toCanvasCoords(viewLimitMeters, 0);
+            ctx.moveTo(x1, y0);
+            ctx.lineTo(x2, y0);
+
+            // Eje Y (x=0)
+            const { px: x0, py: y1 } = toCanvasCoords(0, viewLimitMeters);
+            const { py: y2 } = toCanvasCoords(0, -viewLimitMeters);
+            ctx.moveTo(x0, y1);
+            ctx.lineTo(x0, y2);
+
+            ctx.stroke();
+
+            // --- 3. Etiquetas de los Ejes (Cada 0.1m) ---
+            ctx.strokeStyle = '#9CA3AF'; 
+            ctx.fillStyle = '#374151'; 
+            ctx.font = '12px Inter, sans-serif';
+            
+            const i_min = Math.floor(-viewLimitMeters / labelStepMeters);
+            const i_max = Math.ceil(viewLimitMeters / labelStepMeters);
+
+            // Etiquetas del Eje X
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            for (let i = i_min; i <= i_max; i++) {
+                const x = i * labelStepMeters;
+                if (Math.abs(x) < 0.001) continue; 
+                
+                const { px, py } = toCanvasCoords(x, 0);
+                
+                // Pequeña marca
+                ctx.beginPath();
+                ctx.moveTo(px, py - 5);
+                ctx.lineTo(px, py + 5);
+                ctx.stroke();
+
+                // Etiqueta
+                ctx.fillText(x.toFixed(1), px, py + 5);
+            }
+
+            // Etiquetas del Eje Y
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            for (let i = i_min; i <= i_max; i++) {
+                const y = i * labelStepMeters;
+                if (Math.abs(y) < 0.001) continue; 
+                
+                const { px, py } = toCanvasCoords(0, y);
+                
+                // Pequeña marca
+                ctx.beginPath();
+                ctx.moveTo(px - 5, py);
+                ctx.lineTo(px + 5, py);
+                ctx.stroke();
+
+                // Etiqueta
+                ctx.fillText(y.toFixed(1), px - 5, py);
+            }
+        }
+
+        function updateDisplay() {
+            document.getElementById('currentX').textContent = currentX.toFixed(4);
+            document.getElementById('currentY').textContent = currentY.toFixed(4);
+            document.getElementById('currentQ1').textContent = (currentQ1 * 180 / Math.PI).toFixed(2);
+            document.getElementById('currentQ2').textContent = (currentQ2 * 180 / Math.PI).toFixed(2);
+        }
+
+        function drawRobot(q1, q2) {
+            
+            // 1. DIBUJAR CUADRÍCULA Y EJES
+            drawGrid();
+
+            // 2. DIBUJAR LÍMITE DE ESPACIO DE TRABAJO (Círculo)
+            const { px: originX, py: originY } = toCanvasCoords(0, 0);
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; // red-500 semi-transparente
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]); // Línea punteada
+            ctx.beginPath();
+            ctx.arc(originX, originY, R_MAX * SCALE, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.setLineDash([]); // Restablecer a línea sólida
+            
+            // 3. Dibujar el origen y la base
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(originX, originY, 8, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // 4. Coordenadas de J1 (final del L1)
+            const J1x = L1 * Math.cos(q1);
+            const J1y = L1 * Math.sin(q1);
+            const { px: J1px, py: J1py } = toCanvasCoords(J1x, J1y);
+
+            // 5. Coordenadas de TCP
+            const TCPx = J1x + L2_TCP * Math.cos(q1 + q2);
+            const TCPy = J1y + L2_TCP * Math.sin(q1 + q2);
+            const { px: TCPpx, py: TCPpy } = toCanvasCoords(TCPx, TCPy);
+
+            // Coordenadas de J2 (codo, final del L2_LINK)
+            const J2x = J1x + L2_LINK * Math.cos(q1 + q2);
+            const J2y = J1y + L2_LINK * Math.sin(q1 + q2);
+            const { px: J2px, py: J2py } = toCanvasCoords(J2x, J2y);
+            
+            // --- DIBUJAR LA TRAYECTORIA DESEADA (Línea Punteada) ---
+            if (trajectoryPoints.length > 1) {
+                ctx.strokeStyle = 'rgba(29, 78, 216, 0.7)'; 
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                
+                const { px: startPx, py: startPy } = toCanvasCoords(trajectoryPoints[0][0], trajectoryPoints[0][1]);
+                ctx.moveTo(startPx, startPy);
+
+                for (let i = 1; i < trajectoryPoints.length; i++) {
+                    const { px: nextPx, py: nextPy } = toCanvasCoords(trajectoryPoints[i][0], trajectoryPoints[i][1]);
+                    ctx.lineTo(nextPx, nextPy);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]); 
+                
+                // Dibujar el punto final de la trayectoria
+                const { px: endX, py: endY } = toCanvasCoords(trajectoryPoints[trajectoryPoints.length - 1][0], trajectoryPoints[trajectoryPoints.length - 1][1]);
+                ctx.fillStyle = '#10B981'; 
+                ctx.beginPath();
+                ctx.arc(endX, endY, 6, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // --- DIBUJAR ESLABONES ---
+            ctx.lineWidth = 10; 
+            ctx.lineCap = 'round';
+
+            // Eslabón 1 (L1)
+            ctx.strokeStyle = 'var(--color-primary)';
+            ctx.beginPath();
+            ctx.moveTo(originX, originY);
+            ctx.lineTo(J1px, J1py);
+            ctx.stroke();
+
+            // Eslabón 2 (L2_LINK)
+            ctx.strokeStyle = 'var(--color-primary)';
+            ctx.beginPath();
+            ctx.moveTo(J1px, J1py);
+            ctx.lineTo(J2px, J2py);
+            ctx.stroke();
+
+            // --- DIBUJAR ARTICULACIONES ---
+            ctx.fillStyle = 'black';
+            // Articulación 1 (J1)
+            ctx.beginPath();
+            ctx.arc(J1px, J1py, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            // Articulación 2 (J2 - codo)
+            ctx.beginPath();
+            ctx.arc(J2px, J2py, 6, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // --- DIBUJAR PINZA (GRIPPER) y TCP ---
+            
+            // Dibujar la pinza como una línea corta más delgada
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'gray';
+            ctx.beginPath();
+            ctx.moveTo(J2px, J2py);
+            ctx.lineTo(TCPpx, TCPpy);
+            ctx.stroke();
+
+            // Dibujar el TCP (Tool Center Point) como un punto rojo
+            ctx.fillStyle = 'var(--color-secondary)';
+            ctx.beginPath();
+            ctx.arc(TCPpx, TCPpy, 5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+        
+        function calculateFK(q1, q2) {
+            const x = L1 * Math.cos(q1) + L2_TCP * Math.cos(q1 + q2);
+            const y = L1 * Math.sin(q1) + L2_TCP * Math.sin(q1 + q2);
+            return { x, y };
+        }
+
+        function calculateIK(x, y) {
+            const r2 = x * x + y * y;
+            const r = Math.sqrt(r2);
+
+            // 1. Verificar el espacio de trabajo
+            if (r > R_MAX || r < Math.abs(L1 - L2_TCP)) {
+                return null;
+            }
+
+            // 2. Calcular theta2 (q2)
+            let cosQ2 = (r2 - L1 * L1 - L2_TCP * L2_TCP) / (2 * L1 * L2_TCP);
+            
+            if (cosQ2 > 1.0) cosQ2 = 1.0;
+            if (cosQ2 < -1.0) cosQ2 = -1.0;
+
+            const sinQ2 = Math.sqrt(1 - cosQ2 * cosQ2); 
+            const q2 = Math.atan2(sinQ2, cosQ2);
+
+            // 3. Calcular theta1 (q1)
+            const alpha = Math.atan2(y, x);
+            const beta = Math.atan2(L2_TCP * sinQ2, L1 + L2_TCP * cosQ2);
+            const q1 = alpha - beta;
+
+            return { q1, q2 };
+        }
+
+        function getPolynomialCoefficients(qi, qf, T) {
+            const deltaQ = qf - qi;
+            const T2 = T * T;
+            const T3 = T2 * T;
+            const T4 = T3 * T;
+            const T5 = T4 * T;
+
+            const a0 = qi;
+            const a1 = 0;
+            const a2 = 0;
+            const a3 = 10 * deltaQ / T3;
+            const a4 = -15 * deltaQ / T4;
+            const a5 = 6 * deltaQ / T5;
+
+            return [a0, a1, a2, a3, a4, a5];
+        }
+
+        function calculatePolynomialValue(a, t) {
+            return a[0] + a[1] * t + a[2] * t * t + a[3] * t * t * t + a[4] * Math.pow(t, 4) + a[5] * Math.pow(t, 5);
+        }
+
+        function generateAndPlotTrajectory(xi, yi, xf, yf) {
+            // 1. Coeficientes para X y Y
+            const ax = getPolynomialCoefficients(xi, xf, TF);
+            const ay = getPolynomialCoefficients(yi, yf, TF);
+
+            const dt = 0.5; 
+            const timeSteps = [];
+            const q1d_points = [];
+            const q2d_points = [];
+            const newTrajectoryPoints = [];
+
+            // 2. Generar puntos de la trayectoria
+            for (let t = 0; t <= TF; t += dt) {
+                const xd = calculatePolynomialValue(ax, t);
+                const yd = calculatePolynomialValue(ay, t);
+
+                const ikResult = calculateIK(xd, yd);
+                
+                if (ikResult === null) {
+                    console.error(`Punto inalcanzable en t=${t.toFixed(2)}`);
+                    continue; 
+                }
+
+                timeSteps.push(t.toFixed(1));
+                q1d_points.push(ikResult.q1 * 180 / Math.PI); 
+                q2d_points.push(ikResult.q2 * 180 / Math.PI); 
+                newTrajectoryPoints.push([xd, yd]);
+            }
+
+            trajectoryPoints = newTrajectoryPoints;
+
+            // 3. Actualizar Gráficas (q1d(t) y q2d(t))
+            if (q1dChart) q1dChart.destroy();
+            if (q2dChart) q2dChart.destroy();
+
+            // Configuración común para las gráficas
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Tiempo (s)' }
+                    },
+                    y: {
+                        title: { display: true, text: 'Ángulo (grados)' }
+                    }
+                }
+            };
+            
+            q1dChart = new Chart(document.getElementById('q1dChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [{
+                        label: 'q1d(t) (grados)',
+                        data: q1d_points,
+                        borderColor: 'var(--color-primary)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: chartOptions
+            });
+
+            q2dChart = new Chart(document.getElementById('q2dChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [{
+                        label: 'q2d(t) (grados)',
+                        data: q2d_points,
+                        borderColor: 'var(--color-secondary)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: chartOptions
+            });
+
+            // 4. Mover el robot al punto final y dibujar
+            currentX = xf;
+            currentY = yf;
+            const ikFinal = calculateIK(xf, yf);
+            currentQ1 = ikFinal.q1;
+            currentQ2 = ikFinal.q2;
+
+            updateDisplay();
+            drawRobot(currentQ1, currentQ2);
+        }
+
+        // --- MANEJADORES DE EVENTOS ---
+
+        function showModal(message) {
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('warningModal').classList.remove('hidden');
+        }
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('warningModal').classList.add('hidden');
+        });
+
+        document.getElementById('controlForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const xd_input = parseFloat(document.getElementById('xd').value);
+            const yd_input = parseFloat(document.getElementById('yd').value);
+
+            // 1. Chequeo de Workspace
+            const ikResult = calculateIK(xd_input, yd_input);
+
+            if (ikResult === null) {
+                showModal(`La posición (${xd_input.toFixed(4)}, ${yd_input.toFixed(4)}) m está fuera del espacio de trabajo. Radio Máx: ${R_MAX.toFixed(4)} m. La trayectoria no se calcula.`);
+                return;
+            }
+
+            // 2. Si es alcanzable, generar y plotear trayectoria
+            generateAndPlotTrajectory(currentX, currentY, xd_input, yd_input);
+        });
+
+        document.getElementById('resetButton').addEventListener('click', () => {
+            const xi = 0.14;
+            const yi = 0.14;
+
+            // Actualizar inputs para reflejar el estado inicial
+            document.getElementById('xd').value = xi;
+            document.getElementById('yd').value = yi;
+
+            // Generar trayectoria desde la posición actual hasta (0.14, 0.14)
+            generateAndPlotTrajectory(currentX, currentY, xi, yi);
+        });
+
+        // --- INICIALIZACIÓN ---
+        window.onload = () => {
+            canvas.width = CANVAS_SIZE;
+            canvas.height = CANVAS_SIZE;
+            
+            updateDisplay();
+            
+            generateAndPlotTrajectory(currentX, currentY, parseFloat(document.getElementById('xd').value), parseFloat(document.getElementById('yd').value));
+        };
+    </script>
+</body>
+</html>
