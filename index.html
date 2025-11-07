@@ -7,24 +7,20 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <style>
-        /* Configuración de fuente y colores de Tailwind */
         :root {
-            --color-primary: #1D4ED8; /* blue-700 */
-            --color-secondary: #059669; /* emerald-600 */
-            --color-warning: #EF4444; /* red-500 */
+            --color-primary: #1D4ED8; 
+            --color-secondary: #059669; 
+            --color-warning: #EF4444; 
         }
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
         }
-        /* Estilo para el lienzo del robot */
         #robotCanvas {
             border: 2px solid var(--color-primary);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             background-color: #ffffff;
-            /* Asegura que el canvas sea escalable y tenga un tamaño inicial grande */
             width: 100%;
-            /* El max-width se controla mejor con la rejilla (grid) de Tailwind */
             aspect-ratio: 1 / 1;
         }
     </style>
@@ -132,22 +128,20 @@
     </div>
 
     <script>
-        // --- CONSTANTES DEL ROBOT (Se mantienen igual) ---
-        const L1 = 0.12; // Eslabón 1 (m)
-        const L2_LINK = 0.12; // Eslabón 2 (m)
-        const L_GRIPPER = 0.02; // Pinza (m)
-        const L2_TCP = L2_LINK + L_GRIPPER; // Distancia del codo al TCP (0.14 m)
-        const R_MAX = L1 + L2_TCP; // Radio máximo de trabajo (0.26 m)
-        const TF = 20; // Tiempo final de la trayectoria (s)
 
-        // --- ESTADO INICIAL (Se mantienen igual) ---
-        let currentQ1 = -0.374; // rad
-        let currentQ2 = 1.415; // rad
-        let currentX = 0.14; // m
-        let currentY = 0.14; // m
+        const L1 = 0.12; 
+        const L2_LINK = 0.12; 
+        const L_GRIPPER = 0.02; 
+        const L2_TCP = L2_LINK + L_GRIPPER; 
+        const R_MAX = L1 + L2_TCP; 
+        const TF = 20; 
+
+        let currentQ1 = -0.374; 
+        let currentQ2 = 1.415; 
+        let currentX = 0.14; 
+        let currentY = 0.14; 
         let trajectoryPoints = []; 
 
-        // --- SETUP DE CANVAS (Se mantienen igual) ---
         const canvas = document.getElementById('robotCanvas');
         const ctx = canvas.getContext('2d');
         const CANVAS_SIZE = 500;
@@ -155,10 +149,8 @@
         const CENTER_X = CANVAS_SIZE / 2;
         const CENTER_Y = CANVAS_SIZE / 2; 
 
-        // --- GRÁFICAS (Chart.js) (Se mantienen igual) ---
         let q1dChart, q2dChart;
 
-        // --- FUNCIONES (Se mantienen igual) ---
         function toCanvasCoords(x, y) {
             const px = CENTER_X + x * SCALE;
             const py = CENTER_Y - y * SCALE;
@@ -172,13 +164,9 @@
             const numLines = Math.ceil(viewLimitMeters / gridSizeMeters);
 
             ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE); 
-
-            // --- 1. Cuadrícula fina (0.01m) ---
             ctx.strokeStyle = '#E5E7EB'; 
             ctx.lineWidth = 1;
             ctx.beginPath();
-            
-            // Líneas Verticales
             for (let i = -numLines; i <= numLines; i++) {
                 const x = i * gridSizeMeters;
                 const { px, py } = toCanvasCoords(x, viewLimitMeters); 
@@ -188,7 +176,6 @@
                 ctx.lineTo(px, py_bottom);
             }
             
-            // Líneas Horizontales
             for (let i = -numLines; i <= numLines; i++) {
                 const y = i * gridSizeMeters;
                 const { px: px_right, py } = toCanvasCoords(viewLimitMeters, y); 
@@ -199,18 +186,15 @@
             }
             ctx.stroke();
 
-            // --- 2. Ejes principales (X e Y) ---
             ctx.strokeStyle = '#9CA3AF'; 
             ctx.lineWidth = 2;
             ctx.beginPath();
             
-            // Eje X (y=0)
             const { px: x1, py: y0 } = toCanvasCoords(-viewLimitMeters, 0);
             const { px: x2 } = toCanvasCoords(viewLimitMeters, 0);
             ctx.moveTo(x1, y0);
             ctx.lineTo(x2, y0);
 
-            // Eje Y (x=0)
             const { px: x0, py: y1 } = toCanvasCoords(0, viewLimitMeters);
             const { py: y2 } = toCanvasCoords(0, -viewLimitMeters);
             ctx.moveTo(x0, y1);
@@ -218,7 +202,6 @@
 
             ctx.stroke();
 
-            // --- 3. Etiquetas de los Ejes (Cada 0.1m) ---
             ctx.strokeStyle = '#9CA3AF'; 
             ctx.fillStyle = '#374151'; 
             ctx.font = '12px Inter, sans-serif';
@@ -226,7 +209,6 @@
             const i_min = Math.floor(-viewLimitMeters / labelStepMeters);
             const i_max = Math.ceil(viewLimitMeters / labelStepMeters);
 
-            // Etiquetas del Eje X
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             for (let i = i_min; i <= i_max; i++) {
@@ -235,17 +217,14 @@
                 
                 const { px, py } = toCanvasCoords(x, 0);
                 
-                // Pequeña marca
                 ctx.beginPath();
                 ctx.moveTo(px, py - 5);
                 ctx.lineTo(px, py + 5);
                 ctx.stroke();
 
-                // Etiqueta
                 ctx.fillText(x.toFixed(1), px, py + 5);
             }
 
-            // Etiquetas del Eje Y
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             for (let i = i_min; i <= i_max; i++) {
@@ -254,13 +233,11 @@
                 
                 const { px, py } = toCanvasCoords(0, y);
                 
-                // Pequeña marca
                 ctx.beginPath();
                 ctx.moveTo(px - 5, py);
                 ctx.lineTo(px + 5, py);
                 ctx.stroke();
 
-                // Etiqueta
                 ctx.fillText(y.toFixed(1), px - 5, py);
             }
         }
@@ -274,41 +251,34 @@
 
         function drawRobot(q1, q2) {
             
-            // 1. DIBUJAR CUADRÍCULA Y EJES
             drawGrid();
 
-            // 2. DIBUJAR LÍMITE DE ESPACIO DE TRABAJO (Círculo)
             const { px: originX, py: originY } = toCanvasCoords(0, 0);
-            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; // red-500 semi-transparente
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; 
             ctx.lineWidth = 2;
-            ctx.setLineDash([10, 5]); // Línea punteada
+            ctx.setLineDash([10, 5]); 
             ctx.beginPath();
             ctx.arc(originX, originY, R_MAX * SCALE, 0, 2 * Math.PI);
             ctx.stroke();
-            ctx.setLineDash([]); // Restablecer a línea sólida
+            ctx.setLineDash([]);
             
-            // 3. Dibujar el origen y la base
             ctx.fillStyle = 'black';
             ctx.beginPath();
             ctx.arc(originX, originY, 8, 0, 2 * Math.PI);
             ctx.fill();
 
-            // 4. Coordenadas de J1 (final del L1)
             const J1x = L1 * Math.cos(q1);
             const J1y = L1 * Math.sin(q1);
             const { px: J1px, py: J1py } = toCanvasCoords(J1x, J1y);
 
-            // 5. Coordenadas de TCP
             const TCPx = J1x + L2_TCP * Math.cos(q1 + q2);
             const TCPy = J1y + L2_TCP * Math.sin(q1 + q2);
             const { px: TCPpx, py: TCPpy } = toCanvasCoords(TCPx, TCPy);
 
-            // Coordenadas de J2 (codo, final del L2_LINK)
             const J2x = J1x + L2_LINK * Math.cos(q1 + q2);
             const J2y = J1y + L2_LINK * Math.sin(q1 + q2);
             const { px: J2px, py: J2py } = toCanvasCoords(J2x, J2y);
             
-            // --- DIBUJAR LA TRAYECTORIA DESEADA (Línea Punteada) ---
             if (trajectoryPoints.length > 1) {
                 ctx.strokeStyle = 'rgba(29, 78, 216, 0.7)'; 
                 ctx.lineWidth = 1;
@@ -325,7 +295,6 @@
                 ctx.stroke();
                 ctx.setLineDash([]); 
                 
-                // Dibujar el punto final de la trayectoria
                 const { px: endX, py: endY } = toCanvasCoords(trajectoryPoints[trajectoryPoints.length - 1][0], trajectoryPoints[trajectoryPoints.length - 1][1]);
                 ctx.fillStyle = '#10B981'; 
                 ctx.beginPath();
@@ -333,46 +302,35 @@
                 ctx.fill();
             }
 
-            // --- DIBUJAR ESLABONES ---
             ctx.lineWidth = 10; 
             ctx.lineCap = 'round';
 
-            // Eslabón 1 (L1)
             ctx.strokeStyle = 'var(--color-primary)';
             ctx.beginPath();
             ctx.moveTo(originX, originY);
             ctx.lineTo(J1px, J1py);
             ctx.stroke();
 
-            // Eslabón 2 (L2_LINK)
             ctx.strokeStyle = 'var(--color-primary)';
             ctx.beginPath();
             ctx.moveTo(J1px, J1py);
             ctx.lineTo(J2px, J2py);
             ctx.stroke();
 
-            // --- DIBUJAR ARTICULACIONES ---
             ctx.fillStyle = 'black';
-            // Articulación 1 (J1)
             ctx.beginPath();
             ctx.arc(J1px, J1py, 6, 0, 2 * Math.PI);
             ctx.fill();
-            // Articulación 2 (J2 - codo)
             ctx.beginPath();
             ctx.arc(J2px, J2py, 6, 0, 2 * Math.PI);
             ctx.fill();
 
-            // --- DIBUJAR PINZA (GRIPPER) y TCP ---
-            
-            // Dibujar la pinza como una línea corta más delgada
             ctx.lineWidth = 4;
             ctx.strokeStyle = 'gray';
             ctx.beginPath();
             ctx.moveTo(J2px, J2py);
             ctx.lineTo(TCPpx, TCPpy);
             ctx.stroke();
-
-            // Dibujar el TCP (Tool Center Point) como un punto rojo
             ctx.fillStyle = 'var(--color-secondary)';
             ctx.beginPath();
             ctx.arc(TCPpx, TCPpy, 5, 0, 2 * Math.PI);
@@ -389,12 +347,10 @@
             const r2 = x * x + y * y;
             const r = Math.sqrt(r2);
 
-            // 1. Verificar el espacio de trabajo
             if (r > R_MAX || r < Math.abs(L1 - L2_TCP)) {
                 return null;
             }
 
-            // 2. Calcular theta2 (q2)
             let cosQ2 = (r2 - L1 * L1 - L2_TCP * L2_TCP) / (2 * L1 * L2_TCP);
             
             if (cosQ2 > 1.0) cosQ2 = 1.0;
@@ -403,7 +359,6 @@
             const sinQ2 = Math.sqrt(1 - cosQ2 * cosQ2); 
             const q2 = Math.atan2(sinQ2, cosQ2);
 
-            // 3. Calcular theta1 (q1)
             const alpha = Math.atan2(y, x);
             const beta = Math.atan2(L2_TCP * sinQ2, L1 + L2_TCP * cosQ2);
             const q1 = alpha - beta;
@@ -433,7 +388,7 @@
         }
 
         function generateAndPlotTrajectory(xi, yi, xf, yf) {
-            // 1. Coeficientes para X y Y
+          
             const ax = getPolynomialCoefficients(xi, xf, TF);
             const ay = getPolynomialCoefficients(yi, yf, TF);
 
@@ -443,7 +398,6 @@
             const q2d_points = [];
             const newTrajectoryPoints = [];
 
-            // 2. Generar puntos de la trayectoria
             for (let t = 0; t <= TF; t += dt) {
                 const xd = calculatePolynomialValue(ax, t);
                 const yd = calculatePolynomialValue(ay, t);
@@ -463,11 +417,9 @@
 
             trajectoryPoints = newTrajectoryPoints;
 
-            // 3. Actualizar Gráficas (q1d(t) y q2d(t))
             if (q1dChart) q1dChart.destroy();
             if (q2dChart) q2dChart.destroy();
 
-            // Configuración común para las gráficas
             const chartOptions = {
                 responsive: true,
                 maintainAspectRatio: true,
@@ -512,8 +464,6 @@
                 },
                 options: chartOptions
             });
-
-            // 4. Mover el robot al punto final y dibujar
             currentX = xf;
             currentY = yf;
             const ikFinal = calculateIK(xf, yf);
@@ -524,7 +474,6 @@
             drawRobot(currentQ1, currentQ2);
         }
 
-        // --- MANEJADORES DE EVENTOS ---
 
         function showModal(message) {
             document.getElementById('modalMessage').textContent = message;
@@ -541,7 +490,6 @@
             const xd_input = parseFloat(document.getElementById('xd').value);
             const yd_input = parseFloat(document.getElementById('yd').value);
 
-            // 1. Chequeo de Workspace
             const ikResult = calculateIK(xd_input, yd_input);
 
             if (ikResult === null) {
@@ -549,7 +497,6 @@
                 return;
             }
 
-            // 2. Si es alcanzable, generar y plotear trayectoria
             generateAndPlotTrajectory(currentX, currentY, xd_input, yd_input);
         });
 
@@ -557,15 +504,12 @@
             const xi = 0.14;
             const yi = 0.14;
 
-            // Actualizar inputs para reflejar el estado inicial
             document.getElementById('xd').value = xi;
             document.getElementById('yd').value = yi;
 
-            // Generar trayectoria desde la posición actual hasta (0.14, 0.14)
             generateAndPlotTrajectory(currentX, currentY, xi, yi);
         });
 
-        // --- INICIALIZACIÓN ---
         window.onload = () => {
             canvas.width = CANVAS_SIZE;
             canvas.height = CANVAS_SIZE;
