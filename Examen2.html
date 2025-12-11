@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Planar 2 GDL - Dinámica y Control PD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --color-primary: #1D4ED8; /* Blue */
+            --color-secondary: #059669; /* Emerald */
+            --color-warning: #EF4444; /* Red */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        #robotCanvas {
+            border: 2px solid var(--color-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #ffffff;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': 'var(--color-primary)',
+                        'secondary': 'var(--color-secondary)',
+                        'warning': 'var(--color-warning)',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-8xl mx-auto bg-white rounded-xl shadow-2xl p-6 md:p-10">
+        <h1 class="text-3xl font-extrabold text-primary mb-6 border-b-2 border-primary pb-2">
+            Simulación Dinámica y Control PD de Robot Planar 2 GDL
+        </h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            
+            <div class="p-4 bg-blue-50 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold text-primary mb-3">Parámetros Físicos (a)</h2>
+                <p class="text-sm">l1: <span class="font-bold">0.36</span> m</p>
+                <p class="text-sm">l2: <span class="font-bold">0.38</span> m</p>
+                <p class="text-sm">lc1: <span class="font-bold">0.19</span> m</p>
+                <p class="text-sm">lc2: <span class="font-bold">0.20</span> m</p>
+                <p class="text-sm">m1: <span class="font-bold">3.48</span> kg</p>
+                <p class="text-sm">m2: <span class="font-bold">7.5</span> kg</p>
+                <p class="text-sm">I1: <span class="font-bold">0.25</span> kg*m²</p>
+                <p class="text-sm">I2: <span class="font-bold">0.69</span> kg*m²</p>
+                <p class="text-sm">g: <span class="font-bold">9.8</span> m/s²</p>
+                <p class="text-sm mt-2">Radio Máx. de Trabajo: <span id="maxWorkspace" class="font-bold text-secondary">0.74</span> m</p>
+            </div>
+
+            <div class="p-4 bg-green-50 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold text-secondary mb-3">Ganancias PD (b)</h2>
+                <label for="Kp1" class="block text-sm font-medium text-gray-700">Kp1:</label>
+                <input type="number" id="Kp1" value="400" step="10" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-secondary focus:border-secondary">
+                <label for="Kd1" class="block text-sm font-medium text-gray-700 mt-2">Kd1:</label>
+                <input type="number" id="Kd1" value="60" step="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-secondary focus:border-secondary">
+                <label for="Kp2" class="block text-sm font-medium text-gray-700 mt-2">Kp2:</label>
+                <input type="number" id="Kp2" value="300" step="10" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-secondary focus:border-secondary">
+                <label for="Kd2" class="block text-sm font-medium text-gray-700 mt-2">Kd2:</label>
+                <input type="number" id="Kd2" value="50" step="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-secondary focus:border-secondary">
+            </div>
+
+            <div class="p-6 bg-gray-50 rounded-xl shadow-lg md:col-span-2">
+                <h2 class="text-xl font-semibold text-primary mb-4">Posición Cartesiana Deseada (xd, yd)</h2>
+                <form id="controlForm" class="space-y-4 md:space-y-0 md:space-x-4">
+                    <div class="flex flex-col md:flex-row gap-4 mb-4">
+                        <div class="flex-1">
+                            <label for="xd" class="block text-sm font-medium text-gray-700">Posición Xd (m):</label>
+                            <input type="number" id="xd" value="-0.4" step="0.01" min="-0.74" max="0.74"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-primary focus:border-primary">
+                        </div>
+                        <div class="flex-1">
+                            <label for="yd" class="block text-sm font-medium text-gray-700">Posición Yd (m):</label>
+                            <input type="number" id="yd" value="0.3" step="0.01" min="-0.74" max="0.74"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-primary focus:border-primary">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-4">
+                        <div class="flex-1">
+                            <label for="simulationMode" class="block text-sm font-medium text-gray-700">Modo de Simulación:</label>
+                            <select id="simulationMode" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-primary focus:border-primary">
+                                <option value="slow">Simulación Lenta (20s)</option>
+                                <option value="instant">Simulación Instantánea</option>
+                            </select>
+                        </div>
+                        <button type="submit"
+                            class="px-4 py-2 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-blue-800 transition duration-150 flex-grow">
+                            Iniciar Simulación
+                        </button>
+                    </div>
+                </form>
+
+                <div class="grid grid-cols-2 gap-4 mt-6 p-4 bg-gray-100 rounded-lg">
+                    <div><h3 class="font-semibold text-md text-primary">Articulares Actuales:</h3>
+                        <p class="text-sm">q1: <span id="currentQ1" class="font-bold"></span> rad / <span id="currentQ1Deg" class="font-bold"></span> °</p>
+                        <p class="text-sm">q2: <span id="currentQ2" class="font-bold"></span> rad / <span id="currentQ2Deg" class="font-bold"></span> °</p>
+                        <p class="text-sm">dq1: <span id="currentDq1" class="font-bold"></span> rad/s</p>
+                        <p class="text-sm">dq2: <span id="currentDq2" class="font-bold"></span> rad/s</p>
+                    </div>
+                    <div><h3 class="font-semibold text-md text-secondary">Cartesianas Actuales:</h3>
+                        <p class="text-sm">Posición X: <span id="currentX" class="font-bold"></span> m</p>
+                        <p class="text-sm">Posición Y: <span id="currentY" class="font-bold"></span> m</p>
+                        <p class="text-sm">Tiempo (t): <span id="currentTime" class="font-bold text-warning">0.00</span> s</p>
+                        <p class="text-sm">Estatus: <span id="status" class="font-bold text-secondary">LISTO</span></p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            <div class="lg:col-span-3 flex flex-col items-center justify-start p-4 bg-gray-50 rounded-xl shadow-lg">
+                <h2 class="text-xl font-semibold text-primary mb-4">Visualización del Robot</h2>
+                <canvas id="robotCanvas" width="500" height="500" class="max-w-full h-auto"></canvas>
+            </div>
+            
+            <div class="lg:col-span-2 space-y-6">
+                <h2 class="text-2xl font-bold text-primary mb-4 border-b pb-2">Gráficas de Comportamiento</h2>
+
+                <div class="grid grid-cols-1 gap-6">
+                    <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                        <h3 class="text-lg font-semibold text-blue-800 mb-2">Posición Xd vs X</h3>
+                        <canvas id="xChart"></canvas>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                        <h3 class="text-lg font-semibold text-blue-800 mb-2">Posición Yd vs Y</h3>
+                        <canvas id="yChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-6">
+                    <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                        <h3 class="text-lg font-semibold text-red-800 mb-2">Error de Posición Articular (e1, e2)</h3>
+                        <canvas id="errorChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="trajectorySection" class="mt-8">
+            <h2 class="text-2xl font-bold text-primary mb-4 border-b pb-2">Trayectorias Articulares Deseadas (qd)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-2">Trayectoria de q1d(t)</h3>
+                    <canvas id="q1dChart"></canvas>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg shadow-md">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-2">Trayectoria de q2d(t)</h3>
+                    <canvas id="q2dChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="warningModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 transition-opacity duration-300">
+        <div class="bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full transform scale-100 transition-transform duration-300">
+            <h3 class="text-2xl font-bold text-warning mb-4">¡Advertencia!</h3>
+            <p id="modalMessage" class="text-gray-700 mb-6"></p>
+            <button id="closeModal"
+                class="w-full px-4 py-2 bg-warning text-white font-bold rounded-lg shadow-md hover:bg-red-600 transition duration-150">
+                Entendido
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Constantes del Robot (Punto a) ---
+        const L1 = 0.36;
+        const L2 = 0.38;
+        const LC1 = 0.19;
+        const LC2 = 0.20;
+        const M1 = 3.48;
+        const M2 = 7.5;
+        const I1 = 0.25;
+        const I2 = 0.69;
+        const G = 9.8;
+        const R_MAX = L1 + L2;
+        const L_TCP = L2;
+
+        // --- Parámetros de Simulación y Control ---
+        const TF = 20; // Tiempo final de la simulación (s)
+        const DT = 0.01; // Paso de tiempo para la integración numérica (s)
+        let Kp1, Kd1, Kp2, Kd2; // Se inicializan en startSimulation
+
+        // --- Estado Inicial del Robot ---
+        let currentX = -0.4;
+        let currentY = 0.3;
+        let { q1: initialQ1, q2: initialQ2 } = calculateIK(currentX, currentY);
+
+        let q1 = initialQ1;
+        let q2 = initialQ2;
+        let dq1 = 0;
+        let dq2 = 0;
+
+        // --- Datos de Simulación ---
+        let trajectoryData = []; 
+        let simData = [];        
+        let isSimulating = false;
+        let simulationInterval;
+        let currentTime = 0;
+
+        // --- Elementos de la Interfaz ---
+        const canvas = document.getElementById('robotCanvas');
+        const ctx = canvas.getContext('2d');
+        const CANVAS_SIZE = 500;
+        const SCALE = CANVAS_SIZE / (R_MAX * 2.2);
+        const CENTER_X = CANVAS_SIZE / 2;
+        const CENTER_Y = CANVAS_SIZE / 2;
+        let xChart, yChart, errorChart, q1dChart, q2dChart;
+
+        // --- Funciones de Utilidad ---
+        function toCanvasCoords(x, y) {
+            const px = CENTER_X + x * SCALE;
+            const py = CENTER_Y - y * SCALE;
+            return { px, py };
+        }
+
+        function updateDisplay() {
+            document.getElementById('currentX').textContent = currentX.toFixed(4);
+            document.getElementById('currentY').textContent = currentY.toFixed(4);
+            document.getElementById('currentQ1').textContent = q1.toFixed(4);
+            document.getElementById('currentQ2').textContent = q2.toFixed(4);
+            document.getElementById('currentQ1Deg').textContent = (q1 * 180 / Math.PI).toFixed(2);
+            document.getElementById('currentQ2Deg').textContent = (q2 * 180 / Math.PI).toFixed(2);
+            document.getElementById('currentDq1').textContent = dq1.toFixed(4);
+            document.getElementById('currentDq2').textContent = dq2.toFixed(4);
+            document.getElementById('currentTime').textContent = currentTime.toFixed(2);
+        }
+
+        // --- Cinematica Directa (CD) y Cinematica Inversa (CI) ---
+        function calculateFK(q1_val, q2_val) {
+            const x = L1 * Math.cos(q1_val) + L_TCP * Math.cos(q1_val + q2_val);
+            const y = L1 * Math.sin(q1_val) + L_TCP * Math.sin(q1_val + q2_val);
+            return { x, y };
+        }
+
+        function calculateIK(x, y) {
+            const r2 = x * x + y * y;
+            const r = Math.sqrt(r2);
+
+            if (r > R_MAX || r < Math.abs(L1 - L_TCP)) {
+                return null;
+            }
+
+            let cosQ2 = (r2 - L1 * L1 - L_TCP * L_TCP) / (2 * L1 * L_TCP);
+            
+            if (cosQ2 > 1.0) cosQ2 = 1.0;
+            if (cosQ2 < -1.0) cosQ2 = -1.0;
+
+            const q2 = Math.atan2(Math.sqrt(1 - cosQ2 * cosQ2), cosQ2); 
+            
+            const alpha = Math.atan2(y, x);
+            const beta = Math.atan2(L_TCP * Math.sin(q2), L1 + L_TCP * Math.cos(q2));
+            const q1 = alpha - beta;
+
+            return { q1, q2 };
+        }
+        
+        // --- Generación de Trayectoria ---
+        function getPolynomialCoefficients(qi, qf, T) {
+            const deltaQ = qf - qi;
+            const T2 = T * T;
+            const T3 = T2 * T;
+            const T4 = T3 * T;
+            const T5 = T4 * T;
+
+            const a0 = qi;
+            const a1 = 0;
+            const a2 = 0;
+            const a3 = 10 * deltaQ / T3;
+            const a4 = -15 * deltaQ / T4;
+            const a5 = 6 * deltaQ / T5;
+
+            return [a0, a1, a2, a3, a4, a5];
+        }
+
+        function calculatePolynomialValue(a, t) {
+            return a[0] + a[1] * t + a[2] * t * t + a[3] * Math.pow(t, 3) + a[4] * Math.pow(t, 4) + a[5] * Math.pow(t, 5);
+        }
+
+        function calculatePolynomialDerivative(a, t) {
+            return a[1] + 2 * a[2] * t + 3 * a[3] * Math.pow(t, 2) + 4 * a[4] * Math.pow(t, 3) + 5 * a[5] * Math.pow(t, 4);
+        }
+
+        function generateTrajectory(xi, yi, xf, yf) {
+            const ax = getPolynomialCoefficients(xi, xf, TF);
+            const ay = getPolynomialCoefficients(yi, yf, TF);
+
+            trajectoryData = [];
+            const dt_traj = 0.05;
+
+            for (let t = 0; t <= TF; t += dt_traj) {
+                const xd = calculatePolynomialValue(ax, t);
+                const yd = calculatePolynomialValue(ay, t);
+
+                const ikResult = calculateIK(xd, yd);
+                if (ikResult === null) {
+                    console.error(`Punto inalcanzable en t=${t.toFixed(2)}`);
+                    return null;
+                }
+
+                let dq1d = 0;
+                let dq2d = 0;
+
+                if (t > 0) {
+                    const prev_q1d = trajectoryData[trajectoryData.length - 1][1];
+                    const prev_q2d = trajectoryData[trajectoryData.length - 1][2];
+                    dq1d = (ikResult.q1 - prev_q1d) / dt_traj;
+                    dq2d = (ikResult.q2 - prev_q2d) / dt_traj;
+                }
+                
+                trajectoryData.push([t, ikResult.q1, ikResult.q2, dq1d, dq2d, xd, yd]);
+            }
+
+            return trajectoryData;
+        }
+
+        function getDesiredState(t) {
+            if (trajectoryData.length === 0) return null;
+            
+            for (let i = 0; i < trajectoryData.length; i++) {
+                if (trajectoryData[i][0] >= t) {
+                    return { 
+                        q1d: trajectoryData[i][1], 
+                        q2d: trajectoryData[i][2], 
+                        dq1d: trajectoryData[i][3],
+                        dq2d: trajectoryData[i][4],
+                        xd: trajectoryData[i][5],
+                        yd: trajectoryData[i][6]
+                    };
+                }
+            }
+
+            const lastData = trajectoryData[trajectoryData.length - 1];
+            return {
+                q1d: lastData[1], 
+                q2d: lastData[2], 
+                dq1d: 0, 
+                dq2d: 0, 
+                xd: lastData[5],
+                yd: lastData[6]
+            };
+        }
+
+        // --- Funciones Dinámicas ---
+        function getH(q1_val, q2_val) {
+            const D_c = M2 * L1 * LC2;
+            const H_12_term = I2 + M2 * LC2 * LC2 + D_c * Math.cos(q2_val);
+            const H_11_term = I1 + I2 + M1 * LC1 * LC1 + M2 * (L1 * L1 + LC2 * LC2) + 2 * D_c * Math.cos(q2_val);
+            const H_22_term = I2 + M2 * LC2 * LC2;
+
+            return [[H_11_term, H_12_term], [H_12_term, H_22_term]];
+        }
+
+        function getC(q1_val, q2_val, dq1_val, dq2_val) {
+            const c_q = -M2 * L1 * LC2 * Math.sin(q2_val);
+            
+            const c11 = c_q * dq2_val;
+            const c12 = c_q * (dq1_val + dq2_val);
+            const c21 = -c_q * dq1_val;
+            const c22 = 0;
+
+            return [[c11, c12], [c21, c22]];
+        }
+
+        function getG(q1_val, q2_val) {
+            const G1 = (M1 * LC1 + M2 * L1) * G * Math.cos(q1_val) + M2 * LC2 * G * Math.cos(q1_val + q2_val); 
+            const G2 = M2 * LC2 * G * Math.cos(q1_val + q2_val); 
+
+            return [G1, G2];
+        }
+        
+        const D = [[0, 0], [0, 0]];
+
+        function invert2x2(M) {
+            const det = M[0][0] * M[1][1] - M[0][1] * M[1][0];
+            if (Math.abs(det) < 1e-6) throw new Error("Matriz singular");
+            const invDet = 1.0 / det;
+            return [
+                [M[1][1] * invDet, -M[0][1] * invDet],
+                [-M[1][0] * invDet, M[0][0] * invDet]
+            ];
+        }
+
+        // --- Controlador PD ---
+        function getTorque(q1d, q2d, dq1d, dq2d) {
+            const e1 = q1d - q1;
+            const e2 = q2d - q2;
+            const de1 = dq1d - dq1;
+            const de2 = dq2d - dq2;
+
+            const tau1 = Kp1 * e1 + Kd1 * de1;
+            const tau2 = Kp2 * e2 + Kd2 * de2;
+
+            return { tau1, tau2, e1, e2 };
+        }
+
+        // --- Bucle de Simulación ---
+        function simulateStep(isInstant = false) {
+            if (currentTime > TF) {
+                if (!isInstant) stopSimulation();
+                return false; 
+            }
+
+            const desiredState = getDesiredState(currentTime);
+            if (desiredState === null) {
+                if (!isInstant) stopSimulation();
+                showModal("No se pudo calcular la trayectoria deseada.");
+                return false;
+            }
+
+            // 1. Calcular Torques (Controlador PD)
+            const { tau1, tau2, e1, e2 } = getTorque(desiredState.q1d, desiredState.q2d, desiredState.dq1d, desiredState.dq2d);
+
+            // 2. Calcular Dinámica Inversa
+            const H_q = getH(q1, q2);
+            const C_q_dq = getC(q1, q2, dq1, dq2);
+            const G_q = getG(q1, q2);
+
+            const C1 = C_q_dq[0][0] * dq1 + C_q_dq[0][1] * dq2;
+            const C2 = C_q_dq[1][0] * dq1 + C_q_dq[1][1] * dq2;
+            
+            const D1 = D[0][0] * dq1 + D[0][1] * dq2;
+            const D2 = D[1][0] * dq1 + D[1][1] * dq2;
+            
+            const G1 = G_q[0];
+            const G2 = G_q[1];
+
+            const nonInertialForces = [C1 + D1 + G1, C2 + D2 + G2];
+            const Tnet1 = tau1 - nonInertialForces[0];
+            const Tnet2 = tau2 - nonInertialForces[1];
+
+            try {
+                const H_inv = invert2x2(H_q);
+                const ddq1 = H_inv[0][0] * Tnet1 + H_inv[0][1] * Tnet2;
+                const ddq2 = H_inv[1][0] * Tnet1 + H_inv[1][1] * Tnet2;
+
+                // 3. Integración Numérica (Euler)
+                q1 = q1 + dq1 * DT;
+                q2 = q2 + dq2 * DT;
+                dq1 = dq1 + ddq1 * DT;
+                dq2 = dq2 + ddq2 * DT;
+                
+                const fkResult = calculateFK(q1, q2);
+                currentX = fkResult.x;
+                currentY = fkResult.y;
+
+                // Guardar datos de la simulación
+                simData.push([
+                    currentTime, 
+                    q1, q2, 
+                    dq1, dq2, 
+                    currentX, currentY, 
+                    e1 * 180 / Math.PI, e2 * 180 / Math.PI, 
+                    desiredState.xd, desiredState.yd
+                ]);
+
+            } catch (error) {
+                if (!isInstant) stopSimulation();
+                showModal("Error dinámico: " + error.message);
+                return false;
+            }
+
+            currentTime += DT;
+            
+            if (!isInstant) {
+                updateDisplay();
+                drawRobot(q1, q2, desiredState.xd, desiredState.yd);
+            }
+            
+            return true;
+        }
+
+        function startSimulation(xf, yf) {
+            if (isSimulating) stopSimulation();
+
+            Kp1 = parseFloat(document.getElementById('Kp1').value);
+            Kd1 = parseFloat(document.getElementById('Kd1').value);
+            Kp2 = parseFloat(document.getElementById('Kp2').value);
+            Kd2 = parseFloat(document.getElementById('Kd2').value);
+            const mode = document.getElementById('simulationMode').value;
+
+
+            const ikInitial = calculateIK(currentX, currentY);
+            q1 = ikInitial.q1;
+            q2 = ikInitial.q2;
+            dq1 = 0;
+            dq2 = 0;
+            simData = [];
+            currentTime = 0;
+
+            const traj = generateTrajectory(currentX, currentY, xf, yf);
+            if (traj === null) return;
+            
+            destroyCharts();
+            initializeCharts(xf, yf);
+
+            isSimulating = true;
+            document.getElementById('status').textContent = 'SIMULANDO...';
+
+            if (mode === 'slow') {
+                simulationInterval = setInterval(simulateStep, DT * 1000);
+            } else {
+                let success = true;
+                const totalSteps = TF / DT;
+                for (let i = 0; i < totalSteps; i++) {
+                    success = simulateStep(true); 
+                    if (!success) break;
+                }
+                
+                if (success) {
+                    currentTime = TF;
+                    updateDisplay();
+                    drawRobot(q1, q2, xf, yf); 
+                    document.getElementById('status').textContent = 'FINALIZADO (INSTANT)';
+                    plotSimulationData(); 
+                } else {
+                    document.getElementById('status').textContent = 'ERROR';
+                }
+                isSimulating = false;
+            }
+        }
+
+        function stopSimulation() {
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+                isSimulating = false;
+                document.getElementById('status').textContent = 'FINALIZADO';
+                plotSimulationData();
+            }
+        }
+        
+        // --- Funciones de Dibujo (Visualización) ---
+        function drawGrid() {
+            const gridSizeMeters = 0.1;
+            const viewLimitMeters = R_MAX * 1.1;
+            const numLines = Math.ceil(viewLimitMeters / gridSizeMeters);
+
+            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            ctx.strokeStyle = '#E5E7EB';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = -numLines; i <= numLines; i++) {
+                const x = i * gridSizeMeters;
+                const { px, py } = toCanvasCoords(x, viewLimitMeters);
+                const { py: py_bottom } = toCanvasCoords(x, -viewLimitMeters);
+                ctx.moveTo(px, py);
+                ctx.lineTo(px, py_bottom);
+            }
+            
+            for (let i = -numLines; i <= numLines; i++) {
+                const y = i * gridSizeMeters;
+                const { px: px_right, py } = toCanvasCoords(viewLimitMeters, y);
+                const { px: px_left } = toCanvasCoords(-viewLimitMeters, y);
+                ctx.moveTo(px_right, py);
+                ctx.lineTo(px_left, py);
+            }
+            ctx.stroke();
+
+            ctx.strokeStyle = '#9CA3AF';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const { px: x1, py: y0 } = toCanvasCoords(-viewLimitMeters, 0);
+            const { px: x2 } = toCanvasCoords(viewLimitMeters, 0);
+            ctx.moveTo(x1, y0);
+            ctx.lineTo(x2, y0);
+
+            const { px: x0, py: y1 } = toCanvasCoords(0, viewLimitMeters);
+            const { py: y2 } = toCanvasCoords(0, -viewLimitMeters);
+            ctx.moveTo(x0, y1);
+            ctx.lineTo(x0, y2);
+
+            ctx.stroke();
+            
+            ctx.fillStyle = '#374151';
+            ctx.font = '12px Inter, sans-serif';
+
+            const labelStepMeters = 0.1;
+            const i_min = Math.floor(-viewLimitMeters / labelStepMeters);
+            const i_max = Math.ceil(viewLimitMeters / labelStepMeters);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            for (let i = i_min; i <= i_max; i++) {
+                const x = i * labelStepMeters;
+                if (Math.abs(x) < 0.001) continue;
+                
+                const { px, py } = toCanvasCoords(x, 0);
+                ctx.fillText(x.toFixed(1), px, py + 5);
+            }
+
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            for (let i = i_min; i <= i_max; i++) {
+                const y = i * labelStepMeters;
+                if (Math.abs(y) < 0.001) continue;
+                
+                const { px, py } = toCanvasCoords(0, y);
+                ctx.fillText(y.toFixed(1), px - 5, py);
+            }
+        }
+
+        function drawRobot(q1, q2, xd, yd) {
+            
+            drawGrid();
+
+            const { px: originX, py: originY } = toCanvasCoords(0, 0);
+            
+            // Dibujar espacio de trabajo
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
+            ctx.beginPath();
+            ctx.arc(originX, originY, R_MAX * SCALE, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Dibujar punto deseado (xd, yd)
+            const { px: xdPx, py: ydPy } = toCanvasCoords(xd, yd);
+            ctx.fillStyle = '#10B981'; // Green for Desired Point
+            ctx.beginPath();
+            ctx.arc(xdPx, ydPy, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Trayectoria ejecutada 
+            if (simData.length > 1) {
+                ctx.strokeStyle = 'rgba(29, 78, 216, 0.7)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([2, 2]);
+                ctx.beginPath();
+                
+                let { px: startPx, py: startPy } = toCanvasCoords(simData[0][5], simData[0][6]);
+                ctx.moveTo(startPx, startPy);
+
+                for (let i = 1; i < simData.length; i++) {
+                    const { px: nextPx, py: nextPy } = toCanvasCoords(simData[i][5], simData[i][6]);
+                    ctx.lineTo(nextPx, nextPy);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Cinemática Directa para dibujar el robot
+            const J1x = L1 * Math.cos(q1);
+            const J1y = L1 * Math.sin(q1);
+            const { px: J1px, py: J1py } = toCanvasCoords(J1x, J1y);
+
+            const J2x = J1x + L2 * Math.cos(q1 + q2);
+            const J2y = J1y + L2 * Math.sin(q1 + q2);
+            const { px: J2px, py: J2py } = toCanvasCoords(J2x, J2y);
+            
+            // Dibujo de Eslabones
+            ctx.lineWidth = 10;
+            ctx.lineCap = 'round';
+
+            ctx.strokeStyle = 'var(--color-primary)';
+            ctx.beginPath();
+            ctx.moveTo(originX, originY);
+            ctx.lineTo(J1px, J1py);
+            ctx.stroke();
+
+            ctx.strokeStyle = 'var(--color-primary)';
+            ctx.beginPath();
+            ctx.moveTo(J1px, J1py);
+            ctx.lineTo(J2px, J2py);
+            ctx.stroke();
+
+            // Dibujo de Juntas
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(originX, originY, 8, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(J1px, J1py, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Efector Final
+            ctx.fillStyle = 'var(--color-secondary)';
+            ctx.beginPath();
+            ctx.arc(J2px, J2py, 5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- Funciones de Gráficas ---
+        function destroyCharts() {
+            if (xChart) xChart.destroy();
+            if (yChart) yChart.destroy();
+            if (errorChart) errorChart.destroy();
+            if (q1dChart) q1dChart.destroy();
+            if (q2dChart) q2dChart.destroy();
+        }
+
+        function initializeCharts(xf, yf) {
+            if (trajectoryData.length === 0) {
+                 const fkInitial = calculateFK(q1, q2);
+                 generateTrajectory(fkInitial.x, fkInitial.y, xf, yf);
+            }
+            
+            const chartOptionsBase = {
+                responsive: true, maintainAspectRatio: true,
+                interaction: { mode: 'index', intersect: false },
+                scales: { x: { title: { display: true, text: 'Tiempo (s)' } } },
+                plugins: { legend: { position: 'top' } }
+            };
+
+            const timeSteps = trajectoryData.map(d => d[0].toFixed(2));
+            const q1d_points = trajectoryData.map(d => (d[1] * 180 / Math.PI));
+            const q2d_points = trajectoryData.map(d => (d[2] * 180 / Math.PI));
+
+            const optionsQ = JSON.parse(JSON.stringify(chartOptionsBase));
+            optionsQ.scales.y = { title: { display: true, text: 'Ángulo (grados)' } };
+
+            q1dChart = new Chart(document.getElementById('q1dChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [{
+                        label: 'q1d(t) (grados)',
+                        data: q1d_points,
+                        borderColor: 'var(--color-primary)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: optionsQ
+            });
+
+            q2dChart = new Chart(document.getElementById('q2dChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [{
+                        label: 'q2d(t) (grados)',
+                        data: q2d_points,
+                        borderColor: 'var(--color-secondary)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: optionsQ
+            });
+        }
+
+        function plotSimulationData() {
+            const timeSteps = simData.map(d => d[0].toFixed(2));
+            
+            // Posición Cartesiana Deseada vs. Ejecutada
+            const x_data = simData.map(d => d[5]); 
+            const y_data = simData.map(d => d[6]); 
+            const xd_data = simData.map(d => d[9]); 
+            const yd_data = simData.map(d => d[10]); 
+
+            const optionsXY = {
+                responsive: true, maintainAspectRatio: true,
+                scales: { x: { title: { display: true, text: 'Tiempo (s)' } }, y: { title: { display: true, text: 'Posición (m)' } } },
+                plugins: { legend: { position: 'top' } }
+            };
+
+            xChart = new Chart(document.getElementById('xChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [
+                        { label: 'Xd Deseada (m)', data: xd_data, borderColor: 'var(--color-secondary)', borderWidth: 2, tension: 0.1, pointRadius: 0 },
+                        { label: 'X Ejecutada (m)', data: x_data, borderColor: 'var(--color-primary)', borderWidth: 2, tension: 0.1, pointRadius: 0 }
+                    ]
+                },
+                options: optionsXY
+            });
+
+            yChart = new Chart(document.getElementById('yChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [
+                        { label: 'Yd Deseada (m)', data: yd_data, borderColor: 'var(--color-secondary)', borderWidth: 2, tension: 0.1, pointRadius: 0 },
+                        { label: 'Y Ejecutada (m)', data: y_data, borderColor: 'var(--color-primary)', borderWidth: 2, tension: 0.1, pointRadius: 0 }
+                    ]
+                },
+                options: optionsXY
+            });
+
+            // Errores de Posición Articular
+            const e1_data = simData.map(d => d[7]); 
+            const e2_data = simData.map(d => d[8]); 
+
+            const optionsError = {
+                responsive: true, maintainAspectRatio: true,
+                scales: { x: { title: { display: true, text: 'Tiempo (s)' } }, y: { title: { display: true, text: 'Error (grados)' } } },
+                plugins: { legend: { position: 'top' } }
+            };
+
+            // MODIFICACIÓN CRÍTICA: Cambiar el color de e2 para que sea visible
+            errorChart = new Chart(document.getElementById('errorChart'), {
+                type: 'line',
+                data: {
+                    labels: timeSteps,
+                    datasets: [
+                        { label: 'Error q1 (e1) (grados)', data: e1_data, borderColor: 'var(--color-warning)', borderWidth: 2, tension: 0.1, pointRadius: 0, fill: false },
+                        { label: 'Error q2 (e2) (grados)', data: e2_data, borderColor: '#8B5CF6', borderWidth: 2, tension: 0.1, pointRadius: 0, fill: false } // Nuevo color: Violeta (#8B5CF6)
+                    ]
+                },
+                options: optionsError
+            });
+        }
+
+        // --- Lógica de la Interfaz y Eventos ---
+
+        function showModal(message) {
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('warningModal').classList.remove('hidden');
+        }
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('warningModal').classList.add('hidden');
+        });
+
+        document.getElementById('controlForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const xd_input = parseFloat(document.getElementById('xd').value);
+            const yd_input = parseFloat(document.getElementById('yd').value);
+
+            const ikResult = calculateIK(xd_input, yd_input);
+
+            if (ikResult === null) {
+                showModal(`La posición (${xd_input.toFixed(4)}, ${yd_input.toFixed(4)}) m está fuera del espacio de trabajo. Radio Máx: ${R_MAX.toFixed(4)} m. La simulación no inicia.`);
+                return;
+            }
+            
+            const fkInitial = calculateFK(q1, q2);
+            currentX = fkInitial.x;
+            currentY = fkInitial.y;
+            
+            startSimulation(xd_input, yd_input);
+        });
+
+        window.onload = () => {
+            canvas.width = CANVAS_SIZE;
+            canvas.height = CANVAS_SIZE;
+            document.getElementById('maxWorkspace').textContent = R_MAX.toFixed(4);
+            
+            // Usamos las coordenadas del input como posición de inicio para que la trayectoria se vea desde ahí.
+            const xd_start = parseFloat(document.getElementById('xd').value);
+            const yd_start = parseFloat(document.getElementById('yd').value);
+            
+            const ikResult = calculateIK(xd_start, yd_start);
+            if (ikResult) {
+                q1 = ikResult.q1;
+                q2 = ikResult.q2;
+                currentX = xd_start;
+                currentY = yd_start;
+            } else {
+                // Si la posición inicial del input no es alcanzable, se usa una posición segura predeterminada.
+                // Usamos la posición inicial definida en las variables de estado.
+                currentX = -0.4;
+                currentY = 0.3;
+                const safeIK = calculateIK(currentX, currentY);
+                if (safeIK) {
+                    q1 = safeIK.q1;
+                    q2 = safeIK.q2;
+                    document.getElementById('xd').value = currentX;
+                    document.getElementById('yd').value = currentY;
+                }
+            }
+
+
+            updateDisplay();
+            drawRobot(q1, q2, xd_start, yd_start);
+            
+            const traj = generateTrajectory(currentX, currentY, xd_start, yd_start);
+            if (traj) {
+                initializeCharts(xd_start, yd_start);
+            }
+        };
+    </script>
+</body>
+</html>
